@@ -118,11 +118,12 @@ test("a range-inverted round is pooled in RawAccel's own directions", () => {
   assert.ok(flicks[0].actual.y < 0);
 });
 
-test("newer rounds count for more", () => {
+test("the last five rounds count equally", () => {
   const even = { right: 1000, left: 1000, up: 1000, down: 1000 };
-  const rounds = [1, 2, 3].map(() => ({ look: {}, scales: even, flicks: [flick(0, 20, 1)] }));
-  const { flicks } = pooledFlicks(rounds, even);
-  assert.deepEqual(flicks.map((item) => Math.round(item.weight * 100) / 100), [1, 0.6, 0.36]);
+  const rounds = [1, 2, 3, 4, 5, 6, 7].map(() => ({ look: {}, scales: even, flicks: [flick(0, 20, 1)] }));
+  const pooled = pooledFlicks(rounds, even);
+  assert.equal(pooled.rounds, 5);
+  assert.deepEqual(pooled.flicks.map((item) => item.weight), [1, 1, 1, 1, 1]);
 });
 
 test("one direction is not enough to tune", () => {

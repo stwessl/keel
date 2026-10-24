@@ -184,7 +184,8 @@ function drawProfile() {
     drawLandingChart(profileChart, profileContext, landing);
     const when = new Date(state.lastRound.at).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
     const after = landing.after ? " Green is after the pending step." : "";
-    profileCaption.textContent = `Last round, ${when}. ${describeBiggest(landing)} Copper is where you landed, dashed is perfect, drawn 3× larger.${after}`;
+    const pool = describePool(state.report?.pooled ?? state.pooled).replace(/\.$/, "");
+    profileCaption.textContent = `${pool}, latest ${when}. ${describeBiggest(landing)} Copper is where you landed, dashed is perfect, drawn 3× larger.${after}`;
     return;
   }
   const outline = state.profile
@@ -450,9 +451,9 @@ function describeTiming(round) {
   return `${parts.join(" · ")}, averaged.${slow}`;
 }
 
-function describeBasis(round, pooled) {
-  if (!(pooled?.roundsUsed > 1)) return `This round, ${round?.counted ?? 0} flicks.`;
-  return `Last ${pooled.roundsUsed} rounds, ${pooled.flicksUsed} flicks. Newer rounds count more.`;
+function describeBasis(pooled) {
+  const extra = pooled?.roundsUsed > 1 ? " Older rounds are replayed on the current RawAccel values." : "";
+  return `${describePool(pooled)}${extra}`;
 }
 
 function describeStep(pooled) {
@@ -465,9 +466,9 @@ function describeStep(pooled) {
 
 function renderResults(payload) {
   const rows = [
-    ["Landing", describeLanding(payload?.round)],
+    ["This round", describeLanding(payload?.round)],
     ["Timing", describeTiming(payload?.round)],
-    ["Based on", describeBasis(payload?.round, payload?.pooled)],
+    ["Step from", describeBasis(payload?.pooled)],
     ["Step", describeStep(payload?.pooled)],
   ];
   resultCopy.replaceChildren();
@@ -484,14 +485,22 @@ function boardData(bins, flicks, factors = null) {
   return { summary, bins, relative, after: predictedBins(relative, state.preview ? factors : null) };
 }
 
+function pooledData(pooled) {
+  return pooled?.view ? boardData(pooled.view.bins, pooled.view.flicks, pooled.viewFactors) : null;
+}
+
 function reportData() {
-  return state.report ? boardData(state.report.round.bins, state.flicks, state.report.pooled?.viewFactors) : null;
+  return pooledData(state.report?.pooled);
 }
 
 function lastRoundData() {
-  const last = state.lastRound;
-  if (!last) return null;
-  return boardData(last.report?.bins, last.flicks, state.report ? state.report.pooled?.viewFactors : null);
+  return pooledData(state.report?.pooled ?? state.pooled);
+}
+
+function describePool(pooled) {
+  const rounds = pooled?.roundsUsed ?? 0;
+  const flicks = pooled?.flicksUsed ?? 0;
+  return rounds > 1 ? `Last ${rounds} rounds, ${flicks} flicks, each round counted equally.` : `This round, ${flicks} flicks.`;
 }
 
 function drawChart(data) {
@@ -601,7 +610,7 @@ function renderBoard(data) {
   statLong.textContent = `${summary.longer}%`;
   boardHeadline.textContent = describeBiggest(data);
   const landing = Math.round(summary.mean * 100);
-  boardDetail.textContent = `Your first fast movement lands at ${landing}% of the distance on average, then you correct. That is normal. Keel compares every direction with this average and leaves your overall sensitivity alone. "Even" means within ${Math.round(EVEN_BAND * 100)}% of it.`;
+  boardDetail.textContent = `${describePool(state.report?.pooled)} Your first fast movement lands at ${landing}% of the distance on average, then you correct. That is normal. Keel compares every direction with this average and leaves your overall sensitivity alone. "Even" means within ${Math.round(EVEN_BAND * 100)}% of it.`;
 }
 
 function showBoard() {
@@ -715,6 +724,7 @@ async function loadState() {
   if (!response.ok) throw new Error(payload.error || "Could not read settings");
   state.server = payload;
   state.lastRound = payload.lastRound ?? null;
+  state.pooled = payload.pooled ?? null;
   renderDriver(payload.driver);
   renderStartup(payload.startup);
   importNote.hidden = !payload.settingsAreDefault;

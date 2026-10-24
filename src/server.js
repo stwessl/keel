@@ -6,7 +6,7 @@ import { GAMES } from "./games.js";
 import { defaultStatePath, firstExisting, installerCandidates, keelSettingsPath, settingsCandidates, writerCandidates } from "./paths.js";
 import { defaultSettings } from "./defaults.js";
 import { backupPathFor, commitSettings, inspectSettings, loadJson, saveJson, stageRevert, stageRound, stageTune } from "./store.js";
-import { analyzeFlicks, driverScales, factorsForDriver, pooledFlicks, tuneSettings } from "./tune.js";
+import { analyzeFlicks, driverScales, factorsForDriver, pooledFlicks, toDriverSpace, tuneSettings } from "./tune.js";
 import { summarize } from "./transform.js";
 import { runWriter } from "./writer.js";
 import { launchDriverInstaller, queryDriver } from "./driver.js";
@@ -86,12 +86,20 @@ export function validRawAccelSettings(settings) {
   return Boolean(profile && typeof profile === "object" && Number.isFinite(Number(profile["Output DPI"] ?? 1000)));
 }
 
+// The pool in the range's own directions, on the current RawAccel values, so
+// the landing chart shows exactly what the step is computed from.
+function pooledView(flicks, look) {
+  const view = flicks.map((flick) => toDriverSpace(flick, look));
+  return { flicks: view, bins: analyzeFlicks(view).bins };
+}
+
 function pooledReport(state, settings) {
   const pooled = pooledFlicks(state.rounds, driverScales(settings.profiles[0]));
   return {
     ...analyzeFlicks(pooled.flicks),
     roundsUsed: pooled.rounds,
     flicksUsed: pooled.flicks.length,
+    view: pooledView(pooled.flicks, state.rounds.at(-1)?.look),
   };
 }
 
@@ -119,6 +127,7 @@ export function createKeelServer(options) {
     const last = inspected.state.rounds.at(-1);
     return {
       lastRound: last ? { at: last.at, flicks: last.flicks, report: analyzeFlicks(last.flicks) } : null,
+      pooled: last ? pooledReport(inspected.state, inspected.settings) : null,
       dryRun,
       settingsPath,
       writerPath,

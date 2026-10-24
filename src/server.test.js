@@ -224,6 +224,8 @@ test("rounds are saved, and one round is only used for one step", async () => {
     assert.equal(again.status, 400);
     const second = await playRound(post, compassFlicks(0.75));
     assert.equal(second.pooled.roundsUsed, 2);
+    assert.equal(second.pooled.view.flicks.length, 2 * compassFlicks(0.75).length);
+    assert.equal(second.pooled.view.bins.length, 8);
     assert.equal(second.roundsSaved, 2);
     assert.equal((await post("/api/tune", {})).body.ok, true);
     const secondUp = JSON.parse(fs.readFileSync(settingsPath, "utf8")).profiles[0][UD];
@@ -376,5 +378,18 @@ test("Keel's default settings load like a real RawAccel file", async () => {
     const loaded = await (await fetch(`http://127.0.0.1:${port}/api/state`)).json();
     assert.equal(loaded.profiles[0].outputDpi, 1000);
     assert.equal(loaded.profiles[0].mode, "noaccel");
+  });
+});
+
+test("the pooled chart is drawn in the range's directions even when inverted", async () => {
+  await withServer({}, async ({ port, post }) => {
+    const flicks = compassFlicks(0.75);
+    const round = await playRound(post, flicks, { invertY: true });
+    const up = round.pooled.view.flicks.find((item) => item.intended.y > 0 && item.intended.x === 0);
+    assert.ok(up.actual.y > 0);
+    const upBin = round.pooled.view.bins[2];
+    assert.ok(upBin.count > 0);
+    const loaded = await (await fetch(`http://127.0.0.1:${port}/api/state`)).json();
+    assert.deepEqual(loaded.pooled.view.bins, round.pooled.view.bins);
   });
 });

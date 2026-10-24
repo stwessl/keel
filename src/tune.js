@@ -103,7 +103,7 @@ export function rescaleFlick(flick, then, now) {
 
 export function pooledFlicks(rounds, currentScales, options = {}) {
   const maxRounds = options.maxRounds ?? 5;
-  const decay = options.decay ?? 0.6;
+  const decay = options.decay ?? 1;
   const recent = (rounds ?? []).slice(-maxRounds).reverse();
   const flicks = [];
   recent.forEach((round, age) => {
