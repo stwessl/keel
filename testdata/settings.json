@@ -1,0 +1,14 @@
+{
+  "version": "1.7.1",
+  "profiles": [
+    {
+      "name": "default",
+      "Whole or horizontal accel parameters": { "mode": "noaccel", "acceleration": 0.2 },
+      "Output DPI": 1000,
+      "Y/X output DPI ratio (vertical sens multiplier)": 1,
+      "L/R output DPI ratio (left sens multiplier)": 1,
+      "U/D output DPI ratio (up sens multiplier)": 1,
+      "Degrees of rotation": 0
+    }
+  ]
+}

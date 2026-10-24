@@ -1,0 +1,60 @@
+{
+  "name": "keel",
+  "productName": "Keel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Measure directional flick bias in a 3D range and even it out per direction in RawAccel.",
+  "license": "MIT",
+  "author": "stwessl",
+  "repository": "github:stwessl/keel",
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "app": "electron .",
+    "postinstall": "node node_modules/electron/install.js",
+    "fetch-rawaccel": "node scripts/fetch-rawaccel.js",
+    "icon": "electron scripts/icon.js",
+    "dist": "node scripts/fetch-rawaccel.js && electron-builder --win nsis",
+    "test": "node --test"
+  },
+  "build": {
+    "appId": "app.keel.desktop",
+    "productName": "Keel",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "desktop/main.js",
+      "src/**/*.js",
+      "!src/**/*.test.js",
+      "public/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/rawaccel",
+        "to": "rawaccel"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Keel",
+      "artifactName": "Keel-Setup-${version}.exe",
+      "include": "build/installer.nsh"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
+  }
+}

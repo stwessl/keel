@@ -1,0 +1,46 @@
+<p align="center"><img src="build/icon.png" width="96" alt="Keel"></p>
+
+# Keel
+
+Keel finds out whether your flicks land long or short in some directions, and evens that out in [RawAccel](https://github.com/RawAccelOfficial/rawaccel) one direction at a time. Your overall sensitivity and your accel curve stay as they are.
+
+You flick at targets in a 3D range set up with your game's sensitivity, DPI, and field of view. Keel measures how far each flick goes compared with where the target was, separately for right, left, up, and down. When one direction is clearly off, it sends a small step to RawAccel's left, vertical, and up multipliers.
+
+## Install
+
+1. Download `Keel-Setup-x.y.z.exe` from [Releases](../../releases) and run it. The installer is not code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**.
+2. Open Keel. If the RawAccel driver is not installed, click **Install RawAccel driver**, accept the administrator prompt, and restart the PC.
+3. If you already use RawAccel, click **Import RawAccel settings…** and pick your `settings.json` (next to `rawaccel.exe`) **before** applying a step. Otherwise Keel starts from RawAccel's defaults, and applying a step replaces what RawAccel is using now.
+
+Keel ships the official, unmodified RawAccel 1.7.1 runtime (`writer.exe`, the driver, and its installer) under RawAccel's MIT license. The build downloads it from RawAccel's GitHub release and checks it against the published SHA-256.
+
+## Using it
+
+- **Setup:** pick your game and enter your in-game sensitivity, DPI, and field of view. Keel shows the resulting cm per 360°, including RawAccel's current sensitivity.
+- **Rounds:** play 16 or 40 flicks, then look at the landing chart and apply the suggested step. Play another round to see whether it helped.
+- **Continuous:** targets keep coming. Every 16 or 40 shots Keel checks the numbers and sends a step on its own if a direction is clearly off.
+- **Directions:** "Game-like" puts most flicks sideways and makes them longer, the way most games play. "Even" spreads them over all 8 directions.
+- **Invert:** the invert options only apply inside Keel's range. RawAccel itself is never flipped.
+- **Apply at Windows sign-in:** RawAccel forgets its settings when the PC restarts. This option adds a small script to your Startup folder that sends them again when you sign in.
+
+Each step is capped at ±8% per direction, and only the part of a gap that is bigger than the measurement noise gets corrected. Steps are balanced so their average is 1, which keeps your overall sensitivity where it was. Every step is kept in the history, so you can go back to any earlier one, and **Restore original RawAccel file** puts back the file from before Keel changed it.
+
+Keel's files live in `%LOCALAPPDATA%\Keel`: the RawAccel `settings.json` it manages, a backup from before the first change, round history, and your setup.
+
+## Build from source
+
+Requires Windows and Node.js 20 or newer.
+
+```powershell
+npm install
+npm test               # unit and server tests
+npm run fetch-rawaccel # official RawAccel runtime into vendor/
+npm run app            # run the desktop app from source
+npm run dist           # build dist\Keel-Setup-<version>.exe
+```
+
+`npm start` runs the same app in your browser at http://127.0.0.1:4731/ instead. Add `--dry-run --settings <file>` to try it without touching the driver.
+
+## License
+
+MIT, see [LICENSE](LICENSE). RawAccel is © a1xd and contributors, MIT licensed. Keel is not affiliated with RawAccel.

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keel</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <section class="range" aria-label="Flick range">
+      <canvas id="view"></canvas>
+      <div class="hud">
+        <p id="capture">Click the range to look around. Click again to shoot.</p>
+        <p id="score">0 hits</p>
+        <p id="fps" class="fps"></p>
+      </div>
+      <p id="hud-round" class="hud-round" hidden></p>
+      <div id="board" class="board" hidden>
+        <figure class="board-card board-chart">
+          <canvas id="chart"></canvas>
+          <figcaption>
+            <span class="key key-bias">Your landing</span>
+            <span class="key key-after">After the step</span>
+            <span class="key key-even">Perfect landing</span>
+          </figcaption>
+          <p class="hint">Differences drawn 3× larger so they are visible.</p>
+        </figure>
+        <section class="board-card board-summary" aria-label="Round summary">
+          <div class="board-stats">
+            <p class="stat stat-even"><strong id="stat-even">—</strong><span>Even flicks</span></p>
+            <p class="stat stat-short"><strong id="stat-short">—</strong><span>Short</span></p>
+            <p class="stat stat-long"><strong id="stat-long">—</strong><span>Long</span></p>
+          </div>
+          <p id="board-headline" class="board-headline"></p>
+          <p id="board-detail" class="hint"></p>
+        </section>
+      </div>
+      <button id="fullscreen" class="quiet fullscreen-toggle" type="button" aria-pressed="false">Full screen</button>
+    </section>
+    <aside>
+      <p class="mark">Keel</p>
+      <h1 id="title">Even aim, every direction</h1>
+      <p class="lede" id="lede">Flick at targets the way you do in game. Keel measures where you go long or short, then nudges RawAccel by direction. Your curve stays, and so does your overall sensitivity. Invert only turns this range.</p>
+      <section id="profile-view" aria-label="Sensitivity profile">
+        <canvas id="profile-chart" width="640" height="420"></canvas>
+        <p id="profile-caption" class="hint">The ring is an even profile. A bulge is where this profile is more sensitive.</p>
+      </section>
+
+      <section class="values" aria-labelledby="values-title">
+        <h2 id="values-title">RawAccel values</h2>
+        <p id="driver" class="driver" data-state="unknown">Checking the RawAccel driver…</p>
+        <div class="actions" id="install-driver-row" hidden>
+          <button id="install-driver" type="button">Install RawAccel driver</button>
+        </div>
+        <table>
+          <thead id="values-head"></thead>
+          <tbody id="values-body"></tbody>
+        </table>
+        <p id="values-note" class="hint"></p>
+        <label class="toggle">
+          <input id="startup" type="checkbox">
+          <span>
+            <strong>Apply at Windows sign-in</strong>
+            <small id="startup-note">RawAccel forgets its settings when the PC restarts. This sends them again each time you sign in.</small>
+          </span>
+        </label>
+        <p id="import-note" class="hint" hidden>Keel started from RawAccel's defaults. If you already use RawAccel, import your settings.json first, because applying a step replaces whatever RawAccel is using now.</p>
+        <div class="actions">
+          <button id="import" type="button" class="quiet">Import RawAccel settings…</button>
+          <input id="import-file" type="file" accept=".json,application/json" hidden>
+        </div>
+      </section>
+
+      <section id="setup">
+        <label class="field">
+          <span>Game</span>
+          <select id="game"></select>
+        </label>
+        <div class="setup-grid">
+          <label>
+            <span id="sens-label">Sensitivity</span>
+            <input id="sens" type="number" min="0.01" step="0.01" value="1.5">
+          </label>
+          <label id="vertical-field" hidden>
+            <span>Vertical sensitivity</span>
+            <input id="sens-y" type="number" min="0.01" step="0.01" value="1.5">
+          </label>
+          <label>
+            <span>DPI</span>
+            <input id="dpi" type="number" min="50" step="50" value="1600">
+          </label>
+          <label>
+            <span>Field of view</span>
+            <input id="fov" type="number" min="60" max="140" step="1" value="103">
+          </label>
+          <label id="yaw-field" hidden>
+            <span>Yaw per count</span>
+            <input id="yaw" type="number" min="0.0001" step="0.0001" value="0.022">
+          </label>
+        </div>
+        <p id="sens-hint" class="hint" hidden></p>
+        <p id="cm">—</p>
+        <div class="setup-grid">
+          <label>
+            <span>Mode</span>
+            <select id="mode">
+              <option value="rounds" selected>Rounds</option>
+              <option value="continuous">Continuous</option>
+            </select>
+          </label>
+          <label>
+            <span id="round-length-label">Round</span>
+            <select id="round-length">
+              <option value="16">Quick, 16 flicks</option>
+              <option value="40" selected>Full, 40 flicks</option>
+            </select>
+          </label>
+        </div>
+        <div class="setup-grid">
+          <label>
+            <span>Targets</span>
+            <select id="targets">
+              <option value="varied" selected>Varied size and depth</option>
+              <option value="fixed">Fixed</option>
+            </select>
+          </label>
+          <label>
+            <span>Directions</span>
+            <select id="pattern">
+              <option value="game" selected>Game-like, mostly sideways</option>
+              <option value="even">Even, all 8 directions</option>
+            </select>
+          </label>
+        </div>
+        <div class="setup-grid">
+          <label>
+            <span>Sound</span>
+            <select id="sound">
+              <option value="on" selected>Hit and miss</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+        <p id="mode-hint" class="hint"></p>
+
+        <label class="toggle">
+          <input id="invert-y" type="checkbox">
+          <span>
+            <strong>Invert vertical</strong>
+            <small>Mouse down looks up in this range. The desktop cursor is unchanged.</small>
+          </span>
+        </label>
+        <label class="toggle">
+          <input id="invert-x" type="checkbox">
+          <span>
+            <strong>Invert horizontal</strong>
+            <small>Mouse left looks right in this range. RawAccel is not flipped.</small>
+          </span>
+        </label>
+        <div class="actions">
+          <button id="start" type="button">Start round</button>
+        </div>
+        <div class="actions">
+          <button id="restore" type="button" class="quiet">Restore original RawAccel file</button>
+        </div>
+      </section>
+
+      <section id="live" hidden>
+        <p id="progress">Flick 1 of 16</p>
+        <p id="last-flick">Flick onto the target and click.</p>
+        <button id="abandon" type="button" class="quiet">Leave round</button>
+      </section>
+
+      <section id="results" hidden>
+        <dl id="result-copy" class="result-copy"></dl>
+        <div class="actions">
+          <button id="apply-step" type="button">Apply a small step</button>
+          <button id="again" type="button" class="quiet">Run again</button>
+        </div>
+        <div id="history" class="history"></div>
+      </section>
+
+      <p id="status" role="status">Loading settings…</p>
+      <p id="paths" class="paths"></p>
+    </aside>
+  </main>
+  <script type="module" src="/client.js"></script>
+</body>
+</html>
