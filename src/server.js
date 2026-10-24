@@ -81,6 +81,8 @@ export function cleanSetup(setup) {
   const cm360y = finite(setup.cm360y);
   return {
     game: String(setup.game || "").slice(0, 40),
+    aim: String(setup.aim || "").slice(0, 20),
+    pad: String(setup.pad || "").slice(0, 20),
     sens: finite(setup.sens),
     sensY: finite(setup.sensY),
     dpi: finite(setup.dpi),

@@ -292,6 +292,8 @@ input, select {
   margin-bottom: 12px;
 }
 
+.setup-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
 .hint, #cm, #last-flick {
   color: var(--muted);
   line-height: 1.4;

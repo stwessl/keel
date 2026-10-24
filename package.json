@@ -1,7 +1,7 @@
 {
   "name": "keel",
   "productName": "Keel",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Measure directional flick bias in a 3D range and even it out per direction in RawAccel.",

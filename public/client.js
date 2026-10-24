@@ -30,6 +30,7 @@ import {
   viewHalfAngles,
 } from "/view.js";
 import { WARMUP_SHOTS, advanceRound } from "/round.js";
+import { cmPerDegree, fitEntry, resolveHand } from "/hand.js";
 
 const view = document.querySelector("#view");
 const capture = document.querySelector("#capture");
@@ -53,6 +54,10 @@ const targetsSelect = document.querySelector("#targets");
 const soundSelect = document.querySelector("#sound");
 const patternSelect = document.querySelector("#pattern");
 const modeHint = document.querySelector("#mode-hint");
+const gripSelect = document.querySelector("#grip");
+const aimSelect = document.querySelector("#aim");
+const padSelect = document.querySelector("#pad");
+const handHint = document.querySelector("#hand-hint");
 const driverNode = document.querySelector("#driver");
 const warmupToggle = document.querySelector("#warmup");
 const invertY = document.querySelector("#invert-y");
@@ -164,8 +169,11 @@ function currentSetup() {
   const sensY = game?.vertical ? Number(sensYInput.value) : sens;
   const yaw = activeYaw();
   if (!(dpi > 0 && sens > 0 && sensY > 0 && yaw > 0)) return null;
+  const hand = currentHand();
   return {
     game: game?.id ?? "",
+    aim: hand.style,
+    pad: hand.pad,
     sens,
     sensY,
     dpi,
@@ -175,7 +183,48 @@ function currentSetup() {
   };
 }
 
+// cm/360 the hand really moves, through RawAccel's sensitivity and vertical ratio.
+function effectiveCm360() {
+  const setup = currentSetup();
+  if (!setup) return null;
+  const multiplier = Number(state.profile?.multiplier);
+  const driver = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  const yx = Math.abs(Number(state.profile?.yx));
+  const vertical = Number.isFinite(yx) && yx > 0 ? yx : 1;
+  return { x: setup.cm360 / driver, y: setup.cm360y / (driver * vertical) };
+}
+
+const STYLE_NAMES = { fingers: "Finger", wrist: "Wrist", arm: "Arm", shoulder: "Whole-arm" };
+const PAD_NAMES = { small: "small", medium: "medium", large: "large" };
+
+function updateHandHint() {
+  const cm360 = effectiveCm360();
+  if (!cm360) {
+    handHint.textContent = "";
+    return;
+  }
+  const hand = currentHand();
+  const guessed = aimSelect.value === "unknown"
+    ? gripSelect.value === "unknown" ? " (Keel's guess)" : " (guessed from your grip)"
+    : "";
+  const sideways = fitEntry({ angle: 0, near: 8, far: 40 }, hand, cm360);
+  const perDegree = cmPerDegree(0, cm360);
+  const fit = viewHalfAngles(Number(fovInput.value) || 90, view.width, view.height).halfYaw * 0.88;
+  const far = Math.min(sideways.far, fit);
+  const near = Math.min(sideways.near, far);
+  const cm = (degrees) => (degrees * perDegree).toFixed(1);
+  const parts = [`${STYLE_NAMES[hand.style]} flicks${guessed}: sideways targets need ${cm(near)}–${cm(far)} cm of hand movement (${Math.round(near)}–${Math.round(far)}°).`];
+  const wanted = hand.travel.far;
+  if (sideways.far > fit + 0.5) {
+    parts.push(`${STYLE_NAMES[hand.style]} flicks go up to ${wanted} cm, but at ${cm360.x.toFixed(1)} cm/360 with a ${Math.round(Number(fovInput.value) || 90)}° field of view only ${cm(fit)} cm fits on screen, so longer flicks are tested at that.`);
+  } else if (wanted > hand.room.x) {
+    parts.push(`Capped at ${hand.room.x} cm to fit a ${PAD_NAMES[hand.pad]} pad.`);
+  }
+  handHint.textContent = parts.join(" ");
+}
+
 function updateSetupReadout() {
+  updateHandHint();
   const game = selectedGame();
   if (!game) return;
   yawField.hidden = game.id !== "custom";
@@ -837,7 +886,16 @@ async function loadGames() {
 
 const SETUP_KEY = "keel-setup";
 const SETUP_FIELDS = { sens: sensInput, sensY: sensYInput, dpi: dpiInput, fov: fovInput, yaw: yawInput };
-const SETUP_CHOICES = { rounds: roundLength, mode: modeSelect, targets: targetsSelect, pattern: patternSelect, sound: soundSelect };
+const SETUP_CHOICES = {
+  rounds: roundLength,
+  mode: modeSelect,
+  targets: targetsSelect,
+  pattern: patternSelect,
+  sound: soundSelect,
+  grip: gripSelect,
+  aim: aimSelect,
+  pad: padSelect,
+};
 
 const LOOK_KEY = "keel-look";
 
@@ -979,8 +1037,16 @@ async function restoreSettings() {
   }
 }
 
+function currentHand() {
+  return resolveHand({ grip: gripSelect.value, aim: aimSelect.value, pad: padSelect.value });
+}
+
 function buildOrder(total) {
-  return buildFlickOrder(patternSelect.value, total);
+  const deck = buildFlickOrder(patternSelect.value, total);
+  const cm360 = effectiveCm360();
+  if (!cm360) return deck;
+  const hand = currentHand();
+  return deck.map((entry) => fitEntry(entry, hand, cm360));
 }
 
 function setProgress(text) {
@@ -1574,6 +1640,7 @@ for (const input of [dpiInput, fovInput, yawInput]) {
   input.addEventListener("input", updateSetupReadout);
 }
 for (const select of [modeSelect, roundLength]) select.addEventListener("change", updateModeReadout);
+for (const select of [gripSelect, aimSelect, padSelect]) select.addEventListener("change", updateHandHint);
 for (const control of [gameSelect, warmupToggle, ...Object.values(SETUP_CHOICES), ...Object.values(SETUP_FIELDS)]) {
   control.addEventListener("input", saveSetup);
   control.addEventListener("change", saveSetup);

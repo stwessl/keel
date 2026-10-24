@@ -22,6 +22,7 @@ Keel ships the official, unmodified RawAccel 1.7.1 runtime (`writer.exe`, the dr
 - **Warmup:** the first 5 shots of a round or continuous session are practice and are not saved. Turn it off with the Warmup option.
 - **Best round:** scores each saved round out of 100, half for how evenly your four directions landed and half for reaction time compared with your typical round. Only rounds at the same in-game cm/360 are compared, so a round in another game counts when its distance matches. Pick a round in the bar chart and **Use these settings** to put RawAccel back to the values that round was played on.
 - **Directions:** "Game-like" puts most flicks sideways and makes them longer, the way most games play. "Even" spreads them over all 8 directions.
+- **Grip, flick, and mousepad:** these set how far your hand moves on each test flick, in cm, using your cm/360. "Flick with" sets the range (fingers, wrist, arm, or whole arm). The mousepad caps a flick so it fits the pad. Grip is only used to guess the flick style when you leave "Flick with" on "I don't know". Targets still stay on screen, and Keel says when the screen runs out before the pad does.
 - **Invert:** the invert options only apply inside Keel's range. RawAccel itself is never flipped.
 - **Apply at Windows sign-in:** RawAccel forgets its settings when the PC restarts. This option adds a small script to your Startup folder that sends them again when you sign in.
 
