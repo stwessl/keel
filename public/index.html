@@ -145,6 +145,13 @@
         <p id="mode-hint" class="hint"></p>
 
         <label class="toggle">
+          <input id="warmup" type="checkbox" checked>
+          <span>
+            <strong>Warmup</strong>
+            <small>Five shots before counting starts. They are not saved.</small>
+          </span>
+        </label>
+        <label class="toggle">
           <input id="invert-y" type="checkbox">
           <span>
             <strong>Invert vertical</strong>
@@ -162,6 +169,7 @@
           <button id="start" type="button">Start round</button>
         </div>
         <div class="actions">
+          <button type="button" class="quiet open-best">Best round…</button>
           <button id="restore" type="button" class="quiet">Restore original RawAccel file</button>
         </div>
       </section>
@@ -177,6 +185,7 @@
         <div class="actions">
           <button id="apply-step" type="button">Apply a small step</button>
           <button id="again" type="button" class="quiet">Run again</button>
+          <button type="button" class="quiet open-best">Best round…</button>
         </div>
         <div id="history" class="history"></div>
       </section>
@@ -185,6 +194,24 @@
       <p id="paths" class="paths"></p>
     </aside>
   </main>
+  <dialog id="best-dialog" class="best-dialog" aria-labelledby="best-title">
+    <header class="best-head">
+      <h2 id="best-title">Best round</h2>
+      <button id="best-close" type="button" class="quiet">Close</button>
+    </header>
+    <p id="best-setup" class="best-setup"></p>
+    <p class="hint">Each round scores out of 100: half for how evenly the four directions landed, half for reaction time compared with your typical round at this sensitivity. Rounds from other games count when their cm/360 matches. Rounds with fewer than 10 counted flicks are not scored.</p>
+    <div id="best-other" class="best-other" hidden>
+      <p id="best-other-note" class="hint"></p>
+      <button id="best-adopt" type="button" class="quiet" hidden>Count them as this sensitivity</button>
+    </div>
+    <div id="best-chart" class="best-chart" role="group" aria-label="Round scores"></div>
+    <dl id="best-detail" class="best-detail" aria-live="polite"></dl>
+    <div class="actions">
+      <button id="best-use" type="button">Use these settings</button>
+    </div>
+    <p id="best-status" class="hint"></p>
+  </dialog>
   <script type="module" src="/client.js"></script>
 </body>
 </html>

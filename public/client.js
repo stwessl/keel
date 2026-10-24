@@ -29,6 +29,7 @@ import {
   flickOffset,
   viewHalfAngles,
 } from "/view.js";
+import { WARMUP_SHOTS, advanceRound } from "/round.js";
 
 const view = document.querySelector("#view");
 const capture = document.querySelector("#capture");
@@ -53,6 +54,7 @@ const soundSelect = document.querySelector("#sound");
 const patternSelect = document.querySelector("#pattern");
 const modeHint = document.querySelector("#mode-hint");
 const driverNode = document.querySelector("#driver");
+const warmupToggle = document.querySelector("#warmup");
 const invertY = document.querySelector("#invert-y");
 const invertX = document.querySelector("#invert-x");
 const startButton = document.querySelector("#start");
@@ -82,6 +84,16 @@ const resultCopy = document.querySelector("#result-copy");
 const applyStepButton = document.querySelector("#apply-step");
 const againButton = document.querySelector("#again");
 const historyNode = document.querySelector("#history");
+const bestDialog = document.querySelector("#best-dialog");
+const bestChart = document.querySelector("#best-chart");
+const bestDetail = document.querySelector("#best-detail");
+const bestUse = document.querySelector("#best-use");
+const bestStatus = document.querySelector("#best-status");
+const bestClose = document.querySelector("#best-close");
+const bestSetup = document.querySelector("#best-setup");
+const bestOther = document.querySelector("#best-other");
+const bestOtherNote = document.querySelector("#best-other-note");
+const bestAdopt = document.querySelector("#best-adopt");
 const statusNode = document.querySelector("#status");
 const valuesHead = document.querySelector("#values-head");
 const valuesBody = document.querySelector("#values-body");
@@ -109,6 +121,8 @@ const state = {
   preview: null,
   profileCount: 0,
   lastRound: null,
+  scores: null,
+  selectedRound: null,
 };
 
 function wrap(degrees) {
@@ -139,6 +153,26 @@ function pitchPerCount() {
   const game = selectedGame();
   const sensitivity = game?.vertical ? Number(sensYInput.value) : Number(sensInput.value);
   return activeYaw() * sensitivity;
+}
+
+// cm/360 from the game settings alone, before RawAccel, so rounds on
+// different RawAccel steps still count as the same sensitivity.
+function currentSetup() {
+  const game = selectedGame();
+  const dpi = Number(dpiInput.value);
+  const sens = Number(sensInput.value);
+  const sensY = game?.vertical ? Number(sensYInput.value) : sens;
+  const yaw = activeYaw();
+  if (!(dpi > 0 && sens > 0 && sensY > 0 && yaw > 0)) return null;
+  return {
+    game: game?.id ?? "",
+    sens,
+    sensY,
+    dpi,
+    yaw,
+    cm360: 914.4 / (dpi * sens * yaw),
+    cm360y: 914.4 / (dpi * sensY * yaw),
+  };
 }
 
 function updateSetupReadout() {
@@ -419,6 +453,169 @@ function setStatus(text) {
   statusNode.textContent = text;
 }
 
+function roundTime(at) {
+  return new Date(at).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+}
+
+function gameName(id) {
+  return state.games.find((game) => game.id === id)?.name ?? "Custom";
+}
+
+function selectedScore() {
+  return state.scores?.rounds.find((entry) => entry.at === state.selectedRound) ?? null;
+}
+
+function showScores(payload, selectBest) {
+  state.scores = payload;
+  if (selectBest || !selectedScore()) state.selectedRound = payload.best ?? payload.rounds.at(-1)?.at ?? null;
+  renderBest();
+}
+
+async function loadScores(selectBest) {
+  const setup = currentSetup();
+  const query = setup ? `?cm360=${setup.cm360}&cm360y=${setup.cm360y}` : "";
+  try {
+    const response = await fetch(`/api/rounds/scores${query}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Could not read the rounds");
+    showScores(payload, selectBest);
+  } catch (error) {
+    bestStatus.textContent = error.message;
+  }
+}
+
+async function adoptOldRounds() {
+  bestAdopt.disabled = true;
+  try {
+    showScores(await post("/api/rounds/adopt", { setup: currentSetup() }), true);
+  } catch (error) {
+    bestStatus.textContent = error.message;
+  }
+  bestAdopt.disabled = false;
+}
+
+function describeSetup(setup) {
+  const game = gameName(setup.game);
+  const vertical = Math.abs(setup.cm360y / setup.cm360 - 1) > 0.001 ? `, ${setup.cm360y.toFixed(1)} cm vertical` : "";
+  return `${setup.cm360.toFixed(1)} cm / 360°${vertical}, set up as ${game} ${formatNumber(setup.sens)} at ${formatNumber(setup.dpi)} DPI`;
+}
+
+function renderBestSetup() {
+  const setup = currentSetup();
+  bestSetup.textContent = setup
+    ? `Rounds at ${describeSetup(setup)}.`
+    : "Enter a positive DPI and sensitivity to compare rounds.";
+  const other = state.scores?.otherRounds ?? 0;
+  const unrecorded = state.scores?.unrecordedRounds ?? 0;
+  const parts = [];
+  if (other) parts.push(`${other} round${other === 1 ? " was" : "s were"} played at another sensitivity and ${other === 1 ? "is" : "are"} not shown. Change the setup to see ${other === 1 ? "it" : "them"}.`);
+  if (unrecorded) parts.push(`${unrecorded} older round${unrecorded === 1 ? " was" : "s were"} saved before Keel recorded the sensitivity.`);
+  bestOther.hidden = parts.length === 0;
+  bestOtherNote.textContent = parts.join(" ");
+  bestAdopt.hidden = !unrecorded || !setup;
+  bestAdopt.textContent = `Count ${unrecorded === 1 ? "it" : `all ${unrecorded}`} as this sensitivity`;
+}
+
+async function openBest() {
+  bestStatus.textContent = "";
+  bestDialog.showModal();
+  await loadScores(true);
+}
+
+function renderBest() {
+  renderBestSetup();
+  bestChart.replaceChildren();
+  for (const entry of state.scores?.rounds ?? []) {
+    const best = entry.at === state.scores.best;
+    const scored = Number.isFinite(entry.score);
+    const bar = document.createElement("button");
+    bar.type = "button";
+    bar.className = "bar";
+    bar.classList.toggle("is-best", best);
+    bar.classList.toggle("is-unscored", !scored);
+    bar.classList.toggle("is-selected", entry.at === state.selectedRound);
+    bar.setAttribute("aria-pressed", entry.at === state.selectedRound ? "true" : "false");
+    bar.title = `Round ${entry.number}, ${roundTime(entry.at)}, ${gameName(entry.game)}`;
+    const track = cell("span", "", "bar-track");
+    const fill = cell("span", "", "bar-fill");
+    fill.style.height = `${scored ? Math.max(2, entry.score) : 2}%`;
+    track.append(fill);
+    bar.append(
+      cell("span", scored ? String(Math.round(entry.score)) : "—", "bar-value"),
+      track,
+      cell("span", `${best ? "★ " : ""}R${entry.number}`, "bar-label"),
+    );
+    bar.addEventListener("click", () => {
+      state.selectedRound = entry.at;
+      bestStatus.textContent = "";
+      renderBest();
+    });
+    bestChart.append(bar);
+  }
+  renderBestDetail();
+}
+
+function renderBestDetail() {
+  bestDetail.replaceChildren();
+  const entry = selectedScore();
+  bestUse.hidden = !entry;
+  bestUse.disabled = !entry?.settings || entry.current;
+  bestUse.textContent = entry?.current ? "In use now" : "Use these settings";
+  if (!entry) return;
+  const title = cell("dd", `R${entry.number} · ${roundTime(entry.at)} · ${gameName(entry.game)}`);
+  if (entry.at === state.scores.best) title.append(cell("span", "Best", "tag tag-best"));
+  if (entry.current) title.append(cell("span", "In use", "tag tag-current"));
+  const typical = state.scores.typicalReactionMs;
+  const rows = [["Round", title]];
+  if (Number.isFinite(entry.score)) {
+    rows.push(
+      ["Score", `${Math.round(entry.score)} of 100`],
+      ["Evenness", `${Math.round(entry.evenScore)} of 100. The four directions landed within ${(entry.unevenness * 100).toFixed(1)}% of each other.`],
+      ["Reaction", `${Math.round(entry.reactionMs)} ms, ${Math.round(entry.reactionScore)} of 100. Your typical round is ${Math.round(typical)} ms.`],
+    );
+  } else {
+    rows.push(["Score", `Not scored. ${entry.counted} flick${entry.counted === 1 ? "" : "s"} counted, with too few directions or reaction times.`]);
+  }
+  const landing = describeLanding(entry);
+  if (landing) rows.push(["Landing", landing]);
+  rows.push(["Settings", describeRoundSettings(entry)]);
+  for (const [label, value] of rows) {
+    bestDetail.append(cell("dt", label), typeof value === "string" ? cell("dd", value) : value);
+  }
+}
+
+function describeRoundSettings(entry) {
+  if (!entry.settings) return "This round has no RawAccel values saved.";
+  if (entry.current) return "RawAccel is using these values now.";
+  const changes = settingChanges(state.profile, entry.settings);
+  if (changes.length === 0) return "Practically the same as now.";
+  return `Using them changes ${changes.map(({ label, before, after }) => `${label} ${formatChange(before, after)}`).join(", ")}. You can go back from the history.`;
+}
+
+async function useRoundSettings() {
+  const entry = selectedScore();
+  if (!entry) return;
+  bestUse.disabled = true;
+  try {
+    const payload = await post("/api/rounds/use", { at: entry.at, label: `Settings from R${entry.number}, ${roundTime(entry.at)}` });
+    bestStatus.textContent = payload.message;
+    setStatus(payload.message);
+    if (!payload.dryRun) {
+      state.preview = null;
+      applyStepButton.disabled = true;
+      if (payload.profiles) renderProfile(payload.profiles);
+      if (payload.history) renderHistory(payload.history);
+      restoreButton.disabled = false;
+      updateSetupReadout();
+      drawProfile();
+    }
+    await loadScores(false);
+  } catch (error) {
+    bestStatus.textContent = error.message;
+    renderBestDetail();
+  }
+}
+
 async function post(url, body) {
   const response = await fetch(url, {
     method: "POST",
@@ -684,6 +881,7 @@ function storePrefs() {
 
 function loadSetup(saved = {}) {
   if (state.games.some((game) => game.id === saved.game)) gameSelect.value = saved.game;
+  if (typeof saved.warmup === "boolean") warmupToggle.checked = saved.warmup;
   for (const [key, input] of Object.entries(SETUP_FIELDS)) {
     if (Number(saved[key]) > 0) input.value = String(saved[key]);
   }
@@ -697,7 +895,12 @@ function loadSetup(saved = {}) {
 function saveSetup() {
   const values = Object.fromEntries(Object.entries(SETUP_FIELDS).map(([key, input]) => [key, input.value]));
   const choices = Object.fromEntries(Object.entries(SETUP_CHOICES).map(([key, select]) => [key, select.value]));
-  localStorage.setItem(SETUP_KEY, JSON.stringify({ game: gameSelect.value, ...choices, ...values }));
+  localStorage.setItem(SETUP_KEY, JSON.stringify({
+    game: gameSelect.value,
+    warmup: warmupToggle.checked,
+    ...choices,
+    ...values,
+  }));
   storePrefs();
 }
 
@@ -716,6 +919,10 @@ function updateModeReadout() {
     : "";
   modeHint.hidden = !continuous;
   startButton.textContent = continuous ? "Start continuous" : "Start round";
+}
+
+function roundSetupBody(round) {
+  return { look: round.look, game: round.setup?.game || gameSelect.value, setup: round.setup };
 }
 
 async function loadState() {
@@ -781,10 +988,15 @@ function setProgress(text) {
   const parts = [text, lastFlickNode.dataset.short, state.round?.batchNote].filter(Boolean);
   hudRound.textContent = parts.join(" · ");
   hudRound.hidden = !state.round;
+  hudRound.classList.toggle("is-warmup", (state.round?.warmupLeft ?? 0) > 0);
 }
 
 function progressText() {
   const round = state.round;
+  if (round.warmupLeft > 0) {
+    const number = round.warmupShots - round.warmupLeft + 1;
+    return `Warmup ${number} of ${round.warmupShots}`;
+  }
   if (!round.continuous) return `Flick ${round.index + 1} of ${round.order.length}`;
   const left = round.order.length - round.index;
   const steps = `${round.steps} step${round.steps === 1 ? "" : "s"} sent`;
@@ -806,10 +1018,18 @@ function startCountdown() {
   round.phase = "countdown";
   round.target = null;
   round.countdownEnds = performance.now() + COUNTDOWN_MS;
-  setProgress(round.continuous ? "Get ready. Continuous mode." : `Get ready. ${round.order.length} flicks.`);
+  setProgress(readyLine(round));
   setTimeout(() => {
     if (state.round === round && round.phase === "countdown") showHome();
   }, COUNTDOWN_MS);
+}
+
+function readyLine(round) {
+  if (round.warmupLeft > 0) {
+    const after = round.continuous ? "then targets keep coming" : `then ${round.measured.length} flicks`;
+    return `Get ready. ${round.warmupShots} warmup shots, ${after}.`;
+  }
+  return round.continuous ? "Get ready. Continuous mode." : `Get ready. ${round.order.length} flicks.`;
 }
 
 function spawnTarget() {
@@ -835,8 +1055,11 @@ function startRound() {
   state.flicks = [];
   state.report = null;
   const batch = Number(roundLength.value);
+  const measured = buildOrder(batch);
+  const warmup = warmupToggle.checked;
   state.round = {
-    order: buildOrder(batch),
+    order: warmup ? buildOrder(WARMUP_SHOTS) : measured,
+    measured,
     index: 0,
     phase: "countdown",
     target: null,
@@ -845,16 +1068,21 @@ function startRound() {
     born: 0,
     varied: targetsSelect.value === "varied",
     continuous: continuousMode(),
+    warmupShots: warmup ? WARMUP_SHOTS : 0,
+    warmupLeft: warmup ? WARMUP_SHOTS : 0,
     shots: 0,
     steps: 0,
     batches: 0,
     settleUntil: 0,
     look: { invertY: invertY.checked, invertX: invertX.checked },
+    setup: currentSetup(),
   };
   invertY.disabled = true;
   invertX.disabled = true;
   showPanel("live");
-  lastFlickNode.textContent = "Shoot the green orb, then flick straight onto the copper one and click. Flick the way you would in game.";
+  lastFlickNode.textContent = warmup
+    ? "Warmup first. Shoot the green orb, then flick onto the copper one. These five are not counted."
+    : "Shoot the green orb, then flick straight onto the copper one and click. Flick the way you would in game.";
   delete lastFlickNode.dataset.short;
   startCountdown();
   captureForRound();
@@ -872,6 +1100,7 @@ function closeRound() {
   invertY.disabled = false;
   invertX.disabled = false;
   hudRound.hidden = true;
+  hudRound.classList.remove("is-warmup");
   if (document.pointerLockElement === view) document.exitPointerLock();
   if (fullscreenElement()) toggleFullscreen();
 }
@@ -888,18 +1117,21 @@ function leaveRound() {
 }
 
 // The writer needs about a second to reach the driver, so flicks right after a
-// step would mix the old and new values.
+// step would mix the old and new values. Flicks from while the step is being
+// sent are dropped too: they were played on the old values, but the next batch
+// is saved with the new ones.
 const SETTLE_MS = 1500;
 
 async function submitBatch(round, flicks) {
   try {
-    const payload = await post("/api/rounds", { flicks, look: round.look, game: gameSelect.value });
+    const payload = await post("/api/rounds", { flicks, ...roundSetupBody(round) });
     round.batches += 1;
     state.report = payload;
     state.lastRound = { at: new Date().toISOString(), flicks, report: payload.round };
     let note = "no change needed";
     if (stepChangesSomething(payload.pooled.viewFactors)) {
       const before = state.profile;
+      round.settleUntil = Infinity;
       const tuned = await post("/api/tune", { label: `Continuous, shots ${round.shots - flicks.length + 1}–${round.shots}` });
       if (!tuned.dryRun && tuned.profiles) {
         renderProfile(tuned.profiles);
@@ -918,14 +1150,15 @@ async function submitBatch(round, flicks) {
     round.batchNote = `Check ${round.batches}: ${note}`;
     lastFlickNode.textContent = `Batch ${round.batches} saved, ${payload.round.counted} flicks counted: ${note}.`;
   } catch (error) {
+    if (round.settleUntil === Infinity) round.settleUntil = performance.now() + SETTLE_MS;
     round.batchNote = "Batch not saved";
     lastFlickNode.textContent = `Batch not saved: ${error.message}`;
   }
   if (state.round === round && round.phase !== "flick") setProgress(`${progressText()}. Shoot the center orb.`);
 }
 
-function noteFlick(hit, ms, flick) {
-  if (hit) {
+function noteFlick(hit, ms, flick, warmup = false) {
+  if (hit && !warmup) {
     state.hits += 1;
     scoreNode.textContent = `${state.hits} hit${state.hits === 1 ? "" : "s"}`;
   }
@@ -933,22 +1166,23 @@ function noteFlick(hit, ms, flick) {
   if (!flick) {
     lastFlickNode.textContent = `${lead} That flick had no clear first movement, so it is not counted.`;
     lastFlickNode.dataset.short = hit ? "Hit" : "Missed";
-    return;
+  } else {
+    const gain = (flick.actual.x * flick.intended.x + flick.actual.y * flick.intended.y)
+      / (flick.intended.x ** 2 + flick.intended.y ** 2);
+    const landed = gain > 1.05 ? "went long" : gain < 0.95 ? "fell short" : "landed on distance";
+    const reaction = Number.isFinite(flick.reactionMs) ? ` Reacted in ${Math.round(flick.reactionMs)} ms.` : "";
+    lastFlickNode.textContent = `${lead}${reaction} The first movement ${landed} (${Math.round(gain * 100)}%).`;
+    lastFlickNode.dataset.short = `${hit ? "Hit" : "Missed"}, landed ${Math.round(gain * 100)}%`;
   }
-  const gain = (flick.actual.x * flick.intended.x + flick.actual.y * flick.intended.y)
-    / (flick.intended.x ** 2 + flick.intended.y ** 2);
-  const landed = gain > 1.05 ? "went long" : gain < 0.95 ? "fell short" : "landed on distance";
-  const reaction = Number.isFinite(flick.reactionMs) ? ` Reacted in ${Math.round(flick.reactionMs)} ms.` : "";
-  lastFlickNode.textContent = `${lead}${reaction} The first movement ${landed} (${Math.round(gain * 100)}%).`;
-  lastFlickNode.dataset.short = `${hit ? "Hit" : "Missed"}, landed ${Math.round(gain * 100)}%`;
+  if (warmup) lastFlickNode.textContent += " Warmup, not counted.";
 }
 
 async function finishRound() {
   const flicks = state.flicks;
-  const look = state.round.look;
+  const round = state.round;
   closeRound();
   try {
-    const payload = await post("/api/rounds", { flicks, look, game: gameSelect.value });
+    const payload = await post("/api/rounds", { flicks, ...roundSetupBody(round) });
     state.report = payload;
     state.lastRound = { at: new Date().toISOString(), flicks, report: payload.round };
     state.preview = stepChangesSomething(payload.pooled.viewFactors) ? payload.pooled.preview : null;
@@ -997,20 +1231,26 @@ function shoot() {
       hit,
     }
     : null;
+  const warmupShot = round.warmupLeft > 0;
   const settling = born < round.settleUntil;
-  if (flick && !settling) state.flicks.push(flick);
-  noteFlick(hit, now - born, flick);
-  if (settling && flick) {
+  if (flick && !settling && !warmupShot) state.flicks.push(flick);
+  noteFlick(hit, now - born, flick, warmupShot);
+  if (settling && flick && !warmupShot) {
     lastFlickNode.textContent += " Not counted, RawAccel was still updating.";
     lastFlickNode.dataset.short += ", not counted";
   }
-  round.index += 1;
-  round.shots += 1;
-  if (round.index < round.order.length) {
+  const step = advanceRound(round);
+  if (step === "warmup" || step === "next") {
     showHome();
     return;
   }
-  if (!round.continuous) {
+  if (step === "count") {
+    lastFlickNode.textContent += " Warmup done. Shots from here are counted.";
+    lastFlickNode.dataset.short = "Counting now";
+    showHome();
+    return;
+  }
+  if (step === "finish") {
     finishRound();
     return;
   }
@@ -1150,8 +1390,9 @@ function renderFrame() {
   const aim = state.round ? state.round.target : PRACTICE_TARGET;
   if (aim) {
     const home = state.round?.phase === "home";
+    const warmupFlick = state.round?.phase === "flick" && state.round.warmupLeft > 0;
     const size = home ? HOME_RADIUS : aim.radius ?? TARGET_RADIUS;
-    drawOrb(targetPoint(aim.yaw, aim.pitch, aim.distance ?? TARGET_DISTANCE), camera, fov, width, height, home, size);
+    drawOrb(targetPoint(aim.yaw, aim.pitch, aim.distance ?? TARGET_DISTANCE), camera, fov, width, height, home, size, warmupFlick);
   }
   drawCrosshair(width, height);
   if (state.round?.phase === "countdown") drawCountdown(width, height);
@@ -1202,7 +1443,7 @@ function paintFace(face, camera, fov, width, height) {
   context.stroke();
 }
 
-function drawOrb(world, camera, fov, width, height, home, size) {
+function drawOrb(world, camera, fov, width, height, home, size, warmup) {
   const center = projectCamera(cameraSpace(world, camera), fov, width, height);
   if (!center) return;
   const right = cameraRight(camera);
@@ -1225,7 +1466,11 @@ function drawOrb(world, camera, fov, width, height, home, size) {
     center.y,
     radius,
   );
-  const colors = home ? ["#f4fbe0", "#b9c96a", "#4f5a22"] : ["#fff6ea", "#f0b272", "#8a4e22"];
+  const colors = home
+    ? ["#f4fbe0", "#b9c96a", "#4f5a22"]
+    : warmup
+      ? ["#e8f0f8", "#8eabcc", "#31475f"]
+      : ["#fff6ea", "#f0b272", "#8a4e22"];
   shade.addColorStop(0, colors[0]);
   shade.addColorStop(0.42, colors[1]);
   shade.addColorStop(1, colors[2]);
@@ -1329,7 +1574,7 @@ for (const input of [dpiInput, fovInput, yawInput]) {
   input.addEventListener("input", updateSetupReadout);
 }
 for (const select of [modeSelect, roundLength]) select.addEventListener("change", updateModeReadout);
-for (const control of [gameSelect, ...Object.values(SETUP_CHOICES), ...Object.values(SETUP_FIELDS)]) {
+for (const control of [gameSelect, warmupToggle, ...Object.values(SETUP_CHOICES), ...Object.values(SETUP_FIELDS)]) {
   control.addEventListener("input", saveSetup);
   control.addEventListener("change", saveSetup);
 }
@@ -1347,6 +1592,10 @@ importFile.addEventListener("change", () => { importSettings(); });
 abandonButton.addEventListener("click", () => { leaveRound(); });
 applyStepButton.addEventListener("click", () => { submitStep(); });
 againButton.addEventListener("click", () => { showPanel("setup"); });
+for (const button of document.querySelectorAll(".open-best")) button.addEventListener("click", () => { openBest(); });
+bestClose.addEventListener("click", () => bestDialog.close());
+bestUse.addEventListener("click", () => { useRoundSettings(); });
+bestAdopt.addEventListener("click", () => { adoptOldRounds(); });
 window.addEventListener("resize", resize);
 
 resize();

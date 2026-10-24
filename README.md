@@ -19,6 +19,8 @@ Keel ships the official, unmodified RawAccel 1.7.1 runtime (`writer.exe`, the dr
 - **Setup:** pick your game and enter your in-game sensitivity, DPI, and field of view. Keel shows the resulting cm per 360°, including RawAccel's current sensitivity.
 - **Rounds:** play 16 or 40 flicks, then look at the landing chart and apply the suggested step. Play another round to see whether it helped.
 - **Continuous:** targets keep coming. Every 16 or 40 shots Keel checks the numbers and sends a step on its own if a direction is clearly off.
+- **Warmup:** the first 5 shots of a round or continuous session are practice and are not saved. Turn it off with the Warmup option.
+- **Best round:** scores each saved round out of 100, half for how evenly your four directions landed and half for reaction time compared with your typical round. Only rounds at the same in-game cm/360 are compared, so a round in another game counts when its distance matches. Pick a round in the bar chart and **Use these settings** to put RawAccel back to the values that round was played on.
 - **Directions:** "Game-like" puts most flicks sideways and makes them longer, the way most games play. "Even" spreads them over all 8 directions.
 - **Invert:** the invert options only apply inside Keel's range. RawAccel itself is never flipped.
 - **Apply at Windows sign-in:** RawAccel forgets its settings when the PC restarts. This option adds a small script to your Startup folder that sends them again when you sign in.

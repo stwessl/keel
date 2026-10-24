@@ -84,8 +84,10 @@ function compassFlicks(upGain) {
 
 const writerOk = async () => ({ ok: true, code: 0, error: "" });
 
-async function playRound(post, flicks, look = {}) {
-  const played = await post("/api/rounds", { flicks, look, game: "cs2" });
+const CS2_SETUP = { game: "cs2", sens: 2, sensY: 2, dpi: 800, yaw: 0.022, cm360: 914.4 / (800 * 2 * 0.022) };
+
+async function playRound(post, flicks, look = {}, setup = CS2_SETUP) {
+  const played = await post("/api/rounds", { flicks, look, game: setup?.game ?? "cs2", setup });
   assert.equal(played.status, 200);
   return played.body;
 }
@@ -378,6 +380,75 @@ test("Keel's default settings load like a real RawAccel file", async () => {
     const loaded = await (await fetch(`http://127.0.0.1:${port}/api/state`)).json();
     assert.equal(loaded.profiles[0].outputDpi, 1000);
     assert.equal(loaded.profiles[0].mode, "noaccel");
+  });
+});
+
+test("the settings a round was played on can be put back", async () => {
+  await withServer({ writer: writerOk }, async ({ port, settingsPath, post }) => {
+    await playRound(post, compassFlicks(0.75));
+    const tuned = await post("/api/tune", { label: "Round 1" });
+    assert.equal(tuned.body.ok, true);
+    assert.ok(JSON.parse(fs.readFileSync(settingsPath, "utf8")).profiles[0][UD] > 1);
+
+    const scores = await (await fetch(`http://127.0.0.1:${port}/api/rounds/scores?cm360=${CS2_SETUP.cm360}`)).json();
+    assert.equal(scores.rounds.length, 1);
+    assert.equal(scores.rounds[0].current, false);
+    assert.equal(scores.rounds[0].settings.ud, 1);
+
+    const used = await post("/api/rounds/use", { at: scores.rounds[0].at });
+    assert.equal(used.body.ok, true);
+    const saved = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(saved.profiles[0][UD], 1);
+    assert.equal(saved.profiles[0]["Output DPI"], 1300);
+    assert.equal(saved.profiles[0]["Degrees of rotation"], 12);
+    assert.equal(saved.profiles[1]["Output DPI"], 800);
+    assert.equal(used.body.history.at(-1).label, "Settings from round 1");
+
+    const after = await (await fetch(`http://127.0.0.1:${port}/api/rounds/scores?cm360=${CS2_SETUP.cm360}`)).json();
+    assert.equal(after.rounds[0].current, true);
+    const missing = await post("/api/rounds/use", { at: "never" });
+    assert.equal(missing.status, 400);
+  });
+});
+
+test("rounds saved before snapshots are put back from their direction scales", async () => {
+  await withServer({ writer: writerOk }, async ({ port, settingsPath, statePath, post }) => {
+    await playRound(post, compassFlicks(0.75));
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    delete state.rounds[0].snapshot;
+    state.rounds[0].scales = { ...state.rounds[0].scales, up: state.rounds[0].scales.up * 1.1 };
+    fs.writeFileSync(statePath, JSON.stringify(state));
+    const scores = await (await fetch(`http://127.0.0.1:${port}/api/rounds/scores?cm360=${CS2_SETUP.cm360}`)).json();
+    await post("/api/rounds/use", { at: scores.rounds[0].at });
+    const saved = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    const scales = physicalScales(saved.profiles[0]);
+    assert.ok(Math.abs(scales.up / scales.right / (1.4 * 1.1) - 1) < 1e-6);
+    assert.equal(saved.profiles[0]["Degrees of rotation"], 12);
+  });
+});
+
+test("rounds are only ranked against the same cm/360, whatever the game", async () => {
+  await withServer({}, async ({ port, post }) => {
+    const valorant = { game: "valorant", sens: 2 * 0.022 / 0.07, dpi: 800, yaw: 0.07, cm360: CS2_SETUP.cm360 };
+    const faster = { ...CS2_SETUP, sens: 3, cm360: 914.4 / (800 * 3 * 0.022) };
+    await playRound(post, compassFlicks(1));
+    await playRound(post, compassFlicks(1), {}, valorant);
+    await playRound(post, compassFlicks(1), {}, faster);
+    await playRound(post, compassFlicks(1), {}, null);
+    const scores = async (cm360) => (await fetch(`http://127.0.0.1:${port}/api/rounds/scores?cm360=${cm360}`)).json();
+
+    const same = await scores(CS2_SETUP.cm360);
+    assert.deepEqual(same.rounds.map((entry) => [entry.number, entry.game]), [[1, "cs2"], [2, "valorant"]]);
+    assert.equal(same.otherRounds, 1);
+    assert.equal(same.unrecordedRounds, 1);
+    const other = await scores(faster.cm360);
+    assert.deepEqual(other.rounds.map((entry) => entry.number), [3]);
+
+    const adopted = await post("/api/rounds/adopt", { setup: faster });
+    assert.deepEqual(adopted.body.rounds.map((entry) => entry.number), [3, 4]);
+    assert.equal(adopted.body.unrecordedRounds, 0);
+    const kept = await scores(CS2_SETUP.cm360);
+    assert.equal(kept.rounds.length, 2);
   });
 });
 

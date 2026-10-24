@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { snapshotProfile, tuneSettings, writeSnapshot } from "./tune.js";
+import { driverScales, snapshotProfile, tuneSettings, writeSnapshot } from "./tune.js";
 import { summarize } from "./transform.js";
 
 export function loadJson(file) {
@@ -52,25 +52,62 @@ export function inspectSettings(settingsPath, statePath) {
   };
 }
 
-export function stageTune(settings, state, factors, label) {
-  const before = settings.profiles.map((profile) => snapshotProfile(profile));
+export function profileValues(profile) {
+  return {
+    outputDpi: profile.outputDpi,
+    yx: profile.yx,
+    lr: profile.lr,
+    ud: profile.ud,
+    rotation: profile.rotation,
+  };
+}
+
+function historyWithBaseline(settings, state) {
   const history = [...(state.history ?? [])];
   if (history.length === 0) {
+    const before = settings.profiles.map((profile) => profileValues(snapshotProfile(profile)));
     history.push({ at: new Date().toISOString(), label: "Before tuning", snapshot: before });
   }
+  return history;
+}
+
+export function stageTune(settings, state, factors, label) {
+  const history = historyWithBaseline(settings, state);
   const { settings: next, applied } = tuneSettings(settings, factors);
   history.push({
     at: new Date().toISOString(),
     label,
     factors,
-    snapshot: applied.map((profile) => ({
-      outputDpi: profile.outputDpi,
-      yx: profile.yx,
-      lr: profile.lr,
-      ud: profile.ud,
-      rotation: profile.rotation,
-    })),
+    snapshot: applied.map(profileValues),
   });
+  return { settings: next, applied, state: { ...state, history } };
+}
+
+// The values a round was played on. Rounds saved before Keel kept the full
+// snapshot only have the four direction scales, which are replayed as factors
+// on the current profiles.
+export function roundSettings(settings, round) {
+  if (round.snapshot?.length === settings.profiles.length) {
+    const next = structuredClone(settings);
+    const applied = next.profiles.map((profile, index) => {
+      writeSnapshot(profile, round.snapshot[index]);
+      return { name: profile.name ?? "", ...round.snapshot[index] };
+    });
+    return { settings: next, applied };
+  }
+  const now = driverScales(settings.profiles[0]);
+  const then = round.scales ?? {};
+  const factors = Object.fromEntries(Object.keys(now).map((axis) => [axis, then[axis] / now[axis]]));
+  if (!Object.values(factors).every((factor) => Number.isFinite(factor) && factor > 0)) {
+    throw new Error("That round has no RawAccel values saved.");
+  }
+  return tuneSettings(settings, factors);
+}
+
+export function stageRoundSettings(settings, state, round, label) {
+  const history = historyWithBaseline(settings, state);
+  const { settings: next, applied } = roundSettings(settings, round);
+  history.push({ at: new Date().toISOString(), label, snapshot: applied.map(profileValues) });
   return { settings: next, applied, state: { ...state, history } };
 }
 

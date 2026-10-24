@@ -5,8 +5,21 @@ import { fileURLToPath } from "node:url";
 import { GAMES } from "./games.js";
 import { defaultStatePath, firstExisting, installerCandidates, keelSettingsPath, settingsCandidates, writerCandidates } from "./paths.js";
 import { defaultSettings } from "./defaults.js";
-import { backupPathFor, commitSettings, inspectSettings, loadJson, saveJson, stageRevert, stageRound, stageTune } from "./store.js";
-import { analyzeFlicks, driverScales, factorsForDriver, pooledFlicks, toDriverSpace, tuneSettings } from "./tune.js";
+import {
+  backupPathFor,
+  commitSettings,
+  inspectSettings,
+  loadJson,
+  profileValues,
+  roundSettings,
+  saveJson,
+  stageRevert,
+  stageRound,
+  stageRoundSettings,
+  stageTune,
+} from "./store.js";
+import { analyzeFlicks, driverScales, factorsForDriver, pooledFlicks, snapshotProfile, toDriverSpace, tuneSettings } from "./tune.js";
+import { sameSensitivity, scoreRounds } from "./best.js";
 import { summarize } from "./transform.js";
 import { runWriter } from "./writer.js";
 import { launchDriverInstaller, queryDriver } from "./driver.js";
@@ -60,6 +73,23 @@ export function cleanFlicks(flicks) {
   });
 }
 
+// The in-game setup a round was played at. cm/360 is before RawAccel, so
+// rounds on different RawAccel steps still compare at the same game sensitivity.
+export function cleanSetup(setup) {
+  const cm360 = finite(setup?.cm360);
+  if (!(cm360 > 0)) return null;
+  const cm360y = finite(setup.cm360y);
+  return {
+    game: String(setup.game || "").slice(0, 40),
+    sens: finite(setup.sens),
+    sensY: finite(setup.sensY),
+    dpi: finite(setup.dpi),
+    yaw: finite(setup.yaw),
+    cm360,
+    cm360y: cm360y > 0 ? cm360y : cm360,
+  };
+}
+
 function cleanLook(look) {
   return { invertY: Boolean(look?.invertY), invertX: Boolean(look?.invertX) };
 }
@@ -91,6 +121,46 @@ export function validRawAccelSettings(settings) {
 function pooledView(flicks, look) {
   const view = flicks.map((flick) => toDriverSpace(flick, look));
   return { flicks: view, bins: analyzeFlicks(view).bins };
+}
+
+function sameValues(a, b) {
+  const close = (x, y) => Math.abs(x - y) <= Math.max(Math.abs(x), Math.abs(y)) * 0.0005;
+  return close(a.outputDpi, b.outputDpi) && close(a.yx, b.yx) && close(a.lr, b.lr) && close(a.ud, b.ud)
+    && Math.abs(a.rotation - b.rotation) < 0.01;
+}
+
+// Only rounds at the same in-game distance are ranked against each other.
+export function roundsReport(state, settings, target) {
+  const numbered = state.rounds.map((round, index) => ({ round, number: index + 1 }));
+  const matching = numbered.filter(({ round }) => sameSensitivity(round.setup, target));
+  const scored = scoreRounds(matching.map(({ round }) => round));
+  const now = profileValues(snapshotProfile(settings.profiles[0]));
+  return {
+    ...scored,
+    setup: target ?? null,
+    otherRounds: numbered.filter(({ round }) => round.setup && !sameSensitivity(round.setup, target)).length,
+    unrecordedRounds: numbered.filter(({ round }) => !round.setup).length,
+    rounds: scored.rounds.map((entry, index) => {
+      const { round, number } = matching[index];
+      let values = null;
+      try {
+        values = roundSettings(settings, round).applied[0];
+      } catch {
+        values = null;
+      }
+      return {
+        ...entry,
+        number,
+        game: round.setup.game,
+        settings: values ? profileValues(values) : null,
+        current: values ? sameValues(profileValues(values), now) : false,
+      };
+    }),
+  };
+}
+
+function setupFromQuery(url) {
+  return cleanSetup({ cm360: url.searchParams.get("cm360"), cm360y: url.searchParams.get("cm360y") });
 }
 
 function pooledReport(state, settings) {
@@ -321,7 +391,9 @@ export function createKeelServer(options) {
           at: new Date().toISOString(),
           look: cleanLook(body.look),
           game: String(body.game || "").slice(0, 40),
+          setup: cleanSetup(body.setup),
           scales: driverScales(inspected.settings.profiles[0]),
+          snapshot: inspected.settings.profiles.map((profile) => profileValues(snapshotProfile(profile))),
           flicks,
         };
         const state = stageRound(inspected.state, round);
@@ -370,6 +442,38 @@ export function createKeelServer(options) {
         staged.state.history.at(-1).afterRound = lastRound.at;
         const published = await publish(staged, "Sent a small directional step to RawAccel. It updates about a second later.");
         send(response, published.status, { ...published.body, report });
+        return;
+      }
+      if (request.method === "POST" && url.pathname === "/api/rounds/use") {
+        const body = await readBody(request);
+        const inspected = inspectSettings(settingsPath, statePath);
+        const index = inspected.state.rounds.findIndex((round) => round.at === body.at);
+        if (index < 0) {
+          send(response, 400, { ok: false, error: "That round is no longer saved." });
+          return;
+        }
+        const label = String(body.label || `Settings from round ${index + 1}`).slice(0, 80);
+        const staged = stageRoundSettings(inspected.settings, inspected.state, inspected.state.rounds[index], label);
+        const published = await publish(staged, "Sent that round's RawAccel values. They reach the mouse about a second later.");
+        send(response, published.status, published.body);
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/rounds/scores") {
+        const inspected = inspectSettings(settingsPath, statePath);
+        send(response, 200, roundsReport(inspected.state, inspected.settings, setupFromQuery(url)));
+        return;
+      }
+      if (request.method === "POST" && url.pathname === "/api/rounds/adopt") {
+        const body = await readBody(request);
+        const setup = cleanSetup(body.setup);
+        if (!setup) {
+          send(response, 400, { ok: false, error: "Enter a positive DPI and sensitivity first." });
+          return;
+        }
+        const inspected = inspectSettings(settingsPath, statePath);
+        const rounds = inspected.state.rounds.map((round) => (round.setup ? round : { ...round, setup: { ...setup, game: round.game || setup.game } }));
+        saveJson(statePath, { ...inspected.state, rounds });
+        send(response, 200, { ok: true, ...roundsReport({ ...inspected.state, rounds }, inspected.settings, setup) });
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/revert") {
